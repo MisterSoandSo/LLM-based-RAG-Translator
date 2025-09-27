@@ -68,6 +68,11 @@ async def add_glossary_term(term: str = Form(...), definition: str = Form(...)):
 def home(request: Request):
     return templates.TemplateResponse("chat.html", {"request": request})
 
+def enforce_glossary(translation: str, glossary: dict) -> str:
+    for source, target in glossary.items():
+        translation = translation.replace(source, target)
+    return translation
+
 @app.post("/chat")
 async def chat(request: Request):
     data = await request.json()
@@ -75,20 +80,24 @@ async def chat(request: Request):
     model = "deepseek-v2:16b"
 
     # Build glossary and prompt
-    glossary_prompt = build_glossary_prompt(user_message)
+    glossary_dict = build_glossary_prompt(user_message)
+    glossary_prompt = "\n".join([f"{k} → {v}" for k, v in glossary_dict.items()])
     prompt = "Translate the following text into English:\n\n" + user_message
-    print("Response sent")
+
     # Call Ollama
     response = ollama.chat(
         model=model,
         messages=[
             {"role": "system", "content": "You are a careful translator. Always use the following glossary mappings strictly:\n\n" + glossary_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt + "\n\nReminder: Apply the glossary terms exactly as listed."}
         ]
     )
-    reply = response["message"]["content"]
+
+    # Apply deterministic glossary enforcement
+    reply = enforce_glossary(response["message"]["content"], glossary_dict)
+
     return JSONResponse({
-    "reply": reply,
-    "glossary_prompt": glossary_prompt
-})
+        "reply": reply,
+        "glossary_prompt": glossary_prompt
+    })
 
