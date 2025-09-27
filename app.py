@@ -34,7 +34,7 @@ dict2 = read_csv_to_dict("dictionary2.csv", 0, 1)
 dict1.update(dict2)
 try:
     dict3 = read_csv_to_dict("dictionary3.csv", 0, 1)
-    dict1.update(dict2)
+    dict1.update(dict3)
 except:
     pass
 
@@ -72,17 +72,17 @@ def home(request: Request):
 async def chat(request: Request):
     data = await request.json()
     user_message = data.get("message")
-    model = data.get("model", "deepseek-v2:16b")  # fallback
+    model = "deepseek-v2:16b"
 
     # Build glossary and prompt
     glossary_prompt = build_glossary_prompt(user_message)
-    prompt = glossary_prompt + "Translate the following text into English:\n\n" + user_message
-
+    prompt = "Translate the following text into English:\n\n" + user_message
+    print("Response sent")
     # Call Ollama
     response = ollama.chat(
         model=model,
         messages=[
-            {"role": "system", "content": "You are a careful translator."},
+            {"role": "system", "content": "You are a careful translator. Always use the following glossary mappings strictly:\n\n" + glossary_prompt},
             {"role": "user", "content": prompt}
         ]
     )
