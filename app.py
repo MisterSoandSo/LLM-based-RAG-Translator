@@ -40,16 +40,20 @@ except:
 
 GLOSSARY = dict1
 
-# --- Build glossary block ---
-def build_glossary_prompt(text: str) -> str:
-    relevant_entries = []
+# --- Extract relevant glossary entries as dict ---
+def get_relevant_glossary(text: str) -> dict:
+    relevant = {}
     for src, tgt in GLOSSARY.items():
-        if src in text:
-            relevant_entries.append(f"{src} → {tgt}")
-    if not relevant_entries:
+        if len(src) > 1 and src in text:  # ignore single chars
+            relevant[src] = tgt
+    return relevant
+
+# --- Convert dict → prompt block ---
+def glossary_to_prompt(glossary: dict) -> str:
+    if not glossary:
         return ""
-    glossary_block = "Translation style guide:\n" + "\n".join(relevant_entries)
-    return glossary_block + "\n\n"
+    return "You MUST follow this glossary exactly. Replace the source word with the mapped target \n\n GLOSSARY (do not deviate):\n" + "\n".join(f"{k} → {v}" for k, v in glossary.items()) + "\n\n"
+
 
 # --- Chat endpoint ---
 @app.post("/add_glossary_term")
@@ -79,19 +83,38 @@ async def chat(request: Request):
     user_message = data.get("message")
     model = "deepseek-v2:16b"
 
-    # Build glossary and prompt
-    glossary_dict = build_glossary_prompt(user_message)
-    glossary_prompt = "\n".join([f"{k} → {v}" for k, v in glossary_dict.items()])
+    # Get relevant glossary dict + prompt block
+    glossary_dict = get_relevant_glossary(user_message)
+    glossary_prompt = glossary_to_prompt(glossary_dict)
+
     prompt = "Translate the following text into English:\n\n" + user_message
 
     # Call Ollama
     response = ollama.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are a careful translator. Always use the following glossary mappings strictly:\n\n" + glossary_prompt},
-            {"role": "user", "content": prompt + "\n\nReminder: Apply the glossary terms exactly as listed."}
-        ]
-    )
+    model=model,
+    messages=[
+        {"role": "system", "content": (
+            "You are a careful translator.\n\n"
+                "Translation Rules:\n"
+                "1. Always follow the provided glossary mappings strictly.\n"
+                "2. Do not add explanations, commentary, or personal opinions.\n"
+                "3. Do not use Sanskritized or overly religious terminology unless it appears explicitly in the glossary.\n"
+                "4. Use simple, modern English equivalents whenever possible.\n"
+                "5. Ensure the result can be understood by a high school level reader.\n\n"
+                "Output format:\n"
+                "- Return only the translated text.\n"
+                "- Do not include notes, explanations, or metadata.\n\n"
+                "Glossary (strictly apply):\n"
+                + glossary_prompt
+
+        )},
+        {"role": "user", "content": (
+            prompt
+            + "\n\nReminder: Apply glossary terms exactly as listed. "
+            + "Do not use Sanskritized or religious-sounding alternatives."
+        )}
+    ]
+)
 
     # Apply deterministic glossary enforcement
     reply = enforce_glossary(response["message"]["content"], glossary_dict)
@@ -100,4 +123,5 @@ async def chat(request: Request):
         "reply": reply,
         "glossary_prompt": glossary_prompt
     })
+
 
