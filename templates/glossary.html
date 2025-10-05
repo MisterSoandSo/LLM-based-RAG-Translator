@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Glossary Editor</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>Chinese ↔ English Glossary</h1>
+
+    <!-- Search form -->
+    <form method="get" action="/glossary/">
+        <input type="text" name="q" placeholder="Search..." value="{{ q }}">
+        <button type="submit">Search</button>
+    </form>
+
+    <!-- Add term form -->
+    <h2>Add Term</h2>
+    <form method="post" action="/glossary/">
+        <input type="text" name="chinese" placeholder="Chinese" required>
+        <input type="text" name="english" placeholder="English" required>
+        <input type="text" name="notes" placeholder="Notes">
+        <button type="submit">Add</button>
+    </form>
+
+    <!-- Glossary table -->
+    <h2>Glossary</h2>
+    <table id="glossaryTable">
+        <thead>
+            <tr>
+                <th>Chinese</th>
+                <th>English</th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr data-id="{{ row['id'] }}" 
+                data-chinese="{{ row['chinese'] | e }}" 
+                data-english="{{ row['english'] | e }}" 
+                data-notes="{{ row['notes'] | e }}">
+                <td class="chinese">{{ row['chinese'] }}</td>
+                <td class="english">{{ row['english'] }}</td>
+                <td class="notes">{{ row['notes'] }}</td>
+                <td>
+                    <button type="button" class="editBtn">Edit</button>
+                    <button type="button" class="deleteBtn">Delete</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div class="pagination" style="margin-top: 1em;">
+        {% if page > 1 %}
+            <a class="button" href="/glossary/?q={{ q }}&page={{ page - 1 }}">Back</a>
+        {% endif %}
+        {% if page < total_pages %}
+            <a class="button" href="/glossary/?q={{ q }}&page={{ page + 1 }}">Next</a>
+        {% endif %}
+        <span>Page {{ page }} of {{ total_pages }}</span>
+    </div>
+</body>
+<script src="/static/glossary.js"></script>
+</html>
