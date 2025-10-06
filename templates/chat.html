@@ -1,46 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>LLM Rag Translator </title>
+  <title>LLM Rag Translator</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <h2>Translator Chat</h2>
-  <div style="display: flex; gap: 20px; width: 80%; max-width: 900px; margin-top: 20px;">
+
+  <div class="main-container">
     
     <!-- Chat area -->
-    <div style="flex: 2;">
-      <div id="chatBox"></div>
-      <div id="inputArea">
-        <input id="userInput" type="text" placeholder="Type your message..." onkeydown="if(event.key==='Enter') sendMessage()">
-        <button onclick="sendMessage()">Send</button>
-      </div>
+    <div class="chat-container">
+        <!-- Chat messages will appear here -->
+        <div id="chatBox" class="chat-box"></div>
+
+        <!-- Input area -->
+        <div id="inputArea">
+            <input id="userInput" type="text" placeholder="Type your message..." 
+                  onkeydown="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()">Send</button>
+        </div>
     </div>
 
     <!-- Glossary panel -->
     <div id="glossaryPanel">
       <h3>Add Glossary Term</h3>
-      <form id="glossaryForm">
-        <label>Chinese Term:</label><br>
-        <input type="text" id="term" name="term" style="width:100%; margin-bottom:8px;"><br>
-        <label>English Definition:</label><br>
-        <input type="text" id="definition" name="definition" style="width:100%; margin-bottom:8px;"><br>
-        <button type="submit">Save</button>
+      <form id="glossaryForm" class="glossary-form">
+        <label for="term">Chinese Term:</label>
+        <input type="text" id="term" name="term" placeholder="Enter Chinese term" required>
+
+        <label for="definition">English Definition:</label>
+        <input type="text" id="definition" name="definition" placeholder="Enter English definition" required>
+
+        <button type="submit" class="general">Save</button>
       </form>
 
       <div id="toggleContainer">
-        <input type="checkbox" id="toggleHighlight" checked>
-        <label for="toggleHighlight">Enable Highlight to Glossary</label>
+        <input type="checkbox" id="toggleHighlight">
+        <label for="toggleHighlight">Enable Highlight Functionality</label>
       </div>
 
-      <div id="glossaryStatus" style="margin-top:10px; font-size:14px; color:green;"></div>
+      <div id="glossaryStatus" class="status-message"></div>
 
       <div id="addedGlossary">
         <h4>Recently Added Terms</h4>
         <ul></ul>
       </div>
     </div>
+
   </div>
 
 <script src="/static/backend.js"></script>

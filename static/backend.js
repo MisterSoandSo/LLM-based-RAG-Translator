@@ -1,127 +1,182 @@
+document.addEventListener("DOMContentLoaded", () => {
+  const chatBox = document.getElementById("chatBox");
+  const userInput = document.getElementById("userInput");
+  const toggleHighlight = document.getElementById("toggleHighlight");
 
-    // --- Chat functionality ---
-    async function sendMessage() {
-      const input = document.getElementById("userInput");
-      const message = input.value.trim();
-      if (!message) return;
-      input.value = "";
+  // -------------------------
+  // Create popup menu early
+  // -------------------------
+  const popupMenu = document.createElement("div");
+  popupMenu.id = "popupMenu";
+  popupMenu.style.position = "absolute";
+  popupMenu.style.display = "none";
+  popupMenu.style.zIndex = 9999;
+  popupMenu.style.background = "#fff";
+  popupMenu.style.border = "1px solid #ccc";
+  popupMenu.style.borderRadius = "4px";
+  popupMenu.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
+  document.body.appendChild(popupMenu);
 
-      const chatBox = document.getElementById("chatBox");
+  const glossaryBtn = document.createElement("button");
+  glossaryBtn.textContent = "➕ Glossary";
+  glossaryBtn.style.display = "block";
+  glossaryBtn.style.width = "100%";
 
-      // User message
-      const userDiv = document.createElement("div");
-      userDiv.className = "message user";
-      userDiv.textContent = message;
-      chatBox.appendChild(userDiv);
-      chatBox.scrollTop = chatBox.scrollHeight;
+  const grammarBtn = document.createElement("button");
+  grammarBtn.textContent = "✏️ Grammar Check";
+  grammarBtn.style.display = "block";
+  grammarBtn.style.width = "100%";
 
-      // Send to backend
-      const response = await fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message })
-      });
-      const data = await response.json();
+  popupMenu.appendChild(glossaryBtn);
+  popupMenu.appendChild(grammarBtn);
 
-      // Assistant reply
-if (data.glossary_prompt) {
-  const glossaryDiv = document.createElement("div");
-  glossaryDiv.className = "message assistant";
+  // -------------------------
+  // Highlight toggle
+  // -------------------------
+  let highlightEnabled = toggleHighlight ? toggleHighlight.checked : true;
+  if (toggleHighlight) {
+    toggleHighlight.addEventListener("change", (e) => {
+      highlightEnabled = e.target.checked;
+    });
+  }
 
-  // Preserve newlines, but still wrap long lines
-  glossaryDiv.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word; margin:0;">${data.glossary_prompt}</pre>`;
+  // -------------------------
+  // Show popup menu on text selection
+  // -------------------------
+  document.addEventListener("mouseup", (e) => {
+    if (!highlightEnabled) return;
+    const selection = window.getSelection().toString().trim();
+    if (selection.length > 0) {
+      popupMenu.style.left = e.pageX + "px";
+      popupMenu.style.top = e.pageY + "px";
+      popupMenu.style.display = "block";
+    } else {
+      popupMenu.style.display = "none";
+    }
+  });
 
-  chatBox.appendChild(glossaryDiv);
+  // -------------------------
+  // Glossary highlighting helpers
+  // -------------------------
+  let currentGlossary = {};
+
+  function parseGlossaryPrompt(glossaryText) {
+    const dict = {};
+    const lines = glossaryText.split("\n");
+    for (const line of lines) {
+      const match = line.match(/^(.+?)\s*→\s*(.+)$/);
+      if (match) {
+        dict[match[1].trim()] = match[2].trim();
+      }
+    }
+    return dict;
+  }
+
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function highlightGlossaryTerms(text, glossaryDict) {
+    let result = text;
+    for (const [src, tgt] of Object.entries(glossaryDict)) {
+      const regex = new RegExp(`(${escapeRegex(src)}|${escapeRegex(tgt)})`, "g");
+      result = result.replace(regex, `<span class="highlight-term">$1</span>`);
+    }
+    return result;
+  }
+
+  // -------------------------
+  // Add message to chat
+  // -------------------------
+ function addMessage(text, type = "assistant") {
+  const msgDiv = document.createElement("div");
+  msgDiv.className = `message ${type}`;
+
+  // Debug / glossary messages: preserve newlines
+  if (type === "assistant" && (text.startsWith("GLOSSARY") || text.startsWith("DEBUG PROMPT"))) {
+    msgDiv.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word; margin:0;">${text}</pre>`;
+  } 
+  // Normal assistant messages: highlight glossary
+  else if (type === "assistant") {
+    msgDiv.innerHTML = highlightGlossaryTerms(text, currentGlossary);
+  } 
+  else {
+    msgDiv.textContent = text;
+  }
+
+  chatBox.appendChild(msgDiv);
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-if (data.reply) {
-  const botDiv = document.createElement("div");
-  botDiv.className = "message assistant";
-  botDiv.textContent = data.reply;
-  chatBox.appendChild(botDiv);
-}
+  // -------------------------
+  // Send message (translation)
+  // -------------------------
+  async function sendMessage() {
+    const message = userInput.value.trim();
+    if (!message) return;
+    userInput.value = "";
+    addMessage(message, "user");
 
-chatBox.scrollTop = chatBox.scrollHeight;
+    try {
+      const response = await fetch("/chat/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const data = await response.json();
+
+      // Update glossary
+      if (data.glossary_prompt) {
+        currentGlossary = parseGlossaryPrompt(data.glossary_prompt);
+        addMessage("GLOSSARY\n" + data.glossary_prompt, "assistant");
+      }
+
+      // Show debug system prompt if present
+      if (data.system_prompt) {
+        addMessage("DEBUG PROMPT:\n" + data.system_prompt, "assistant");
+      }
+
+      // Add translated reply
+      if (data.reply) addMessage(data.reply, "assistant");
+    } catch (err) {
+      console.error(err);
+      addMessage("❌ Error connecting to server", "assistant");
     }
+  }
 
-    // --- Glossary functionality ---
-    document.addEventListener("DOMContentLoaded", () => {
-      const glossaryForm = document.getElementById("glossaryForm");
-      const glossaryList = document.querySelector("#addedGlossary ul");
-      const glossaryStatus = document.getElementById("glossaryStatus");
-      const toggleHighlight = document.getElementById("toggleHighlight");
+  window.sendMessage = sendMessage;
 
-      let highlightEnabled = toggleHighlight.checked;
+  // -------------------------
+  // Grammar check button
+  // -------------------------
+  grammarBtn.addEventListener("click", async () => {
+    const selection = window.getSelection().toString().trim();
+    if (!selection) return;
+    popupMenu.style.display = "none";
 
-      // Toggle highlight functionality
-      toggleHighlight.addEventListener("change", (e) => {
-        highlightEnabled = e.target.checked;
-        glossaryBtn.style.display = "none";
+    try {
+      const response = await fetch("/chat/grammarly", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: selection }),
       });
+      const data = await response.json();
+      addMessage("Original: " + selection, "user");
+      addMessage("Corrected: " + data.reply, "assistant");
+    } catch (err) {
+      console.error(err);
+      addMessage("❌ Error checking grammar", "assistant");
+    }
+  });
 
-      // Create a single glossary button
-      const glossaryBtn = document.createElement("button");
-      glossaryBtn.id = "glossaryBtn";
-      glossaryBtn.textContent = "➕ Glossary";
-      glossaryBtn.style.position = "absolute";
-      glossaryBtn.style.display = "none";
-      glossaryBtn.style.zIndex = 9999;
-      document.body.appendChild(glossaryBtn);
-
-      glossaryBtn.addEventListener("click", () => {
-        const selection = window.getSelection().toString().trim();
-        if (!selection) return;
-
-        document.getElementById("term").value = selection;
-        glossaryBtn.style.display = "none";
-        window.getSelection().removeAllRanges();
-      });
-
-      // Highlight listener
-      document.addEventListener("mouseup", (e) => {
-        if (!highlightEnabled) return;
-
-        const selection = window.getSelection().toString().trim();
-        if (selection.length > 0) {
-          glossaryBtn.style.left = e.pageX + "px";
-          glossaryBtn.style.top = e.pageY + "px";
-          glossaryBtn.style.display = "block";
-        } else {
-          glossaryBtn.style.display = "none";
-        }
-      });
-
-      // Glossary form submit
-      glossaryForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-
-        const term = document.getElementById("term").value.trim();
-        const definition = document.getElementById("definition").value.trim();
-        if (!term || !definition) return;
-
-        const formData = new FormData();
-        formData.append("term", term);
-        formData.append("definition", definition);
-
-        try {
-          const response = await fetch("/add_glossary_term", { method: "POST", body: formData });
-          const result = await response.json();
-          if (result.status === "success") {
-            glossaryStatus.innerText = `✅ Added "${result.term}" → ${result.definition}`;
-
-            const li = document.createElement("li");
-            li.textContent = `${result.term} → ${result.definition}`;
-            glossaryList.appendChild(li);
-
-            document.getElementById("term").value = "";
-            document.getElementById("definition").value = "";
-          } else {
-            glossaryStatus.innerText = "❌ Failed to save term.";
-          }
-        } catch (err) {
-          console.error(err);
-          glossaryStatus.innerText = "❌ Error saving term.";
-        }
-      });
-    });
+  // -------------------------
+  // Glossary add button
+  // -------------------------
+  glossaryBtn.addEventListener("click", () => {
+    const selection = window.getSelection().toString().trim();
+    if (!selection) return;
+    document.getElementById("term").value = selection;
+    popupMenu.style.display = "none";
+    window.getSelection().removeAllRanges();
+  });
+});
