@@ -39,6 +39,25 @@ The backend acts as a mediator between the user and Ollama:
     - Query Ollama locally
     - Return response
 
+#### `POST /chat/grammarly`
+
+- Input: text passage
+- Output: corrected text
+- Logic:
+    - Parse user input
+    - Match glossary terms (`LIKE` or fuzzy search)
+    - Generate system prompt including matched terms
+    - Query Ollama locally
+    - Return response
+
+
+| Method|Endpoint|Description|
+| --- | --- | --- |
+|`GET`|`/chat`| Get the Chat UI|
+| `POST`| `/chat/translate`| Submit message for translation|
+| `POST`| `/chat/grammarly`| Submit message for grammar fluency|
+
+
 ### Glossary Route
 |Method|Endpoint|Description|
 |---|---|---|
