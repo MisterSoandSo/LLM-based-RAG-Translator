@@ -185,10 +185,13 @@ async def download_glossary(
         import csv, io
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerows(rows)
-        conn.close()
-        
+
+        # Write data rows with language codes
+        for chinese, english in rows:
+            writer.writerow([chinese, english, "ZH", "EN"])
+
         output.seek(0)
+
         return StreamingResponse(
             output,
             media_type="text/csv",

@@ -7,12 +7,20 @@
 <body>
     <h1>Chinese ↔ English Glossary</h1>
 
-    <!-- Search form -->
-    <form method="get" action="/glossary/">
-        <input type="text" name="q" placeholder="Search..." value="{{ q }}">
-        <button type="submit">Search</button>
-    </form>
+    <!-- Search + Export Row -->
+    <div style="display: flex; align-items: center; gap: 1em; margin-bottom: 1em;">
+        <!-- Search form -->
+        <form method="get" action="/glossary/" style="display: flex; gap: 0.5em; flex-grow: 1;">
+            <input type="text" name="q" placeholder="Search..." value="{{ q }}" style="flex-grow: 1;">
+            <button type="submit">Search</button>
+        </form>
 
+        <!-- Export CSV button -->
+        <form method="get" action="/glossary/export">
+            <button type="submit">Export CSV</button>
+        </form>
+    </div>
+    
     <!-- Add term form -->
     <h2>Add Term</h2>
     <form method="post" action="/glossary/">
