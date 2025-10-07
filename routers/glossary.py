@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Request,HTTPException, Form
+from fastapi import APIRouter, Request,HTTPException, Form, UploadFile, File
 from fastapi.responses import RedirectResponse,StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from typing import Optional
+import csv, io
 import sqlite3
 import traceback
 
@@ -182,7 +183,7 @@ async def download_glossary(
         cur.execute("SELECT chinese, english FROM glossary")
         rows = cur.fetchall()
    
-        import csv, io
+
         output = io.StringIO()
         writer = csv.writer(output)
 
@@ -201,5 +202,45 @@ async def download_glossary(
         pass
 
 
+@glossary_router.post("/import")
+async def import_glossary(uploaded_file: UploadFile = File(...), request: Request = None):
+    try:
+        conn = request.app.state.db
+        cur = conn.cursor()
 
-    
+        content = await uploaded_file.read()
+        text_io = io.StringIO(content.decode("utf-8"))
+        reader = csv.reader(text_io)
+
+        # Skip header if present
+        headers = next(reader, None)
+
+        for row in reader:
+            if len(row) < 2:
+                continue
+            chinese = row[0].strip()
+            english = row[1].strip()
+
+            # Check if term exists
+            cur.execute("SELECT english FROM glossary WHERE chinese = ?", (chinese,))
+            result = cur.fetchone()
+
+            if result is None:
+                # Term doesn't exist: insert
+                cur.execute(
+                    "INSERT INTO glossary (chinese, english) VALUES (?, ?)",
+                    (chinese, english)
+                )
+            elif result[0] != english:
+                # Term exists but definition differs: update
+                cur.execute(
+                    "UPDATE glossary SET english = ? WHERE chinese = ?",
+                    (english, chinese)
+                )
+            # else: term exists and definition matches -> do nothing
+
+        conn.commit()
+        return {"status": "success", "message": f"Imported {uploaded_file.filename}"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
