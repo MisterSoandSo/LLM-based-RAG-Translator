@@ -27,35 +27,74 @@ The backend acts as a mediator between the user and Ollama:
 
 ## API Endpoints
 
-### Chat Route
-#### `POST /chat/translate`
+### Chat Routes
 
-- Input: text passage
-- Output: translated text + glossary context (if debug mode)
-- Logic:
-    - Parse user input
-    - Match glossary terms (`LIKE` or fuzzy search)
-    - Generate system prompt including matched terms
-    - Query Ollama locally
-    - Return response
+#### `POST /chat/translate/start`
 
-#### `POST /chat/grammarly`
+- **Input:** JSON `{ "message": "<text>" }`
+    
+- **Output:** JSON with either:
+    
+    - `stage: "confirm_glossary"` + `glossary_options` if matches found
+        
+    - `stage: "complete"` + `"No glossary match found."` if no matches
+        
+- **Logic:**
+    
+    1. Parse user input
+        
+    2. Fetch glossary from database
+        
+    3. Match glossary terms present in the text
+        
+    4. Return matched terms for user confirmation
+        
 
-- Input: text passage
-- Output: corrected text
-- Logic:
-    - Parse user input
-    - Match glossary terms (`LIKE` or fuzzy search)
-    - Generate system prompt including matched terms
-    - Query Ollama locally
-    - Return response
+#### `POST /chat/translate/confirm`
+
+- **Input:** JSON `{ "message": "<text>", "confirmed_glossary": { ... } }`
+    
+- **Output:** JSON `{ "stage": "complete", "reply": "<translated text>", "glossary_prompt": "<glossary used>" }`
+    
+- **Logic:**
+    
+    1. Generate system prompt including confirmed glossary
+        
+    2. Query Ollama for Chinese → English translation
+        
+    3. Return translated text with glossary context
+        
+
+#### `POST /chat/translate/polish`
+
+- **Input:** JSON `{ "message": "<text>" }`
+    
+- **Output:** JSON `{ "reply": "<corrected text>" }`
+    
+    - Returns `"No change necessary."` if grammar is already correct
+        
+- **Logic:**
+    
+    1. Generate grammar-check system prompt
+        
+    2. Query Ollama
+        
+    3. Compare corrected text with original
+        
+    4. Return full corrected text only if changed
+        
+
+---
+
+|Method|Endpoint|Description|
+|---|---|---|
+|`POST`|`/chat/translate/start`|Submit message for translation (detect glossary terms)|
+|`POST`|`/chat/translate/confirm`|Confirm glossary and get final translation|
+|`POST`|`/chat/translate/polish`|Submit message for grammar/fluency check|
+
+---
 
 
-| Method|Endpoint|Description|
-| --- | --- | --- |
-|`GET`|`/chat`| Get the Chat UI|
-| `POST`| `/chat/translate`| Submit message for translation|
-| `POST`| `/chat/grammarly`| Submit message for grammar fluency|
 
 
 ### Glossary Route
