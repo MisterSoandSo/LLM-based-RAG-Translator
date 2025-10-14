@@ -1,123 +1,134 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 import ollama
 from .glossary import query_glossary
 
-chat_router = APIRouter(
-    prefix="/chat",   
-    tags=["chat"]
-)
-
-templates = Jinja2Templates(directory="templates")
+chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+# -------------------------
+# Prompt Builders
+# -------------------------
 def build_translate_prompt(glossary_prompt: str | None = None) -> str:
-    """Constructs a full translation system prompt, including glossary terms if available."""
     glossary_section = f"\nGlossary (strictly apply):\n{glossary_prompt}\n" if glossary_prompt else ""
-
     return (
-        "You are a careful translator.\n\n"
-        "Translation Rules:\n"
-        "1. Always follow the provided glossary mappings strictly.\n"
-        "2. Do not add explanations, commentary, or personal opinions.\n"
-        "3. Do not use Sanskritized or overly religious terminology unless it appears explicitly in the glossary.\n"
-        "4. Use simple, modern English equivalents whenever possible.\n"
-        "5. Ensure the result can be understood by a high school level reader.\n"
-        "6. Preserve all numbers, dates, and numerical expressions literally.\n"
-        "7. Do NOT change numbers in meaning or combine them.\n"
-        "8. Do NOT approximate or round any numeric values.\n\n"
-        "Output format:\n"
-        "- Return only the translated text.\n"
-        "- Do not include notes, explanations, or metadata.\n"
+        "You are a professional translator tasked with translating **Chinese text into natural English**.\n"
+        "Follow these steps carefully:\n"
+        "1. The input text will be entirely or mostly in Chinese.\n"
+        "2. Translate it into fluent, natural, idiomatic English suitable for a high-school-level reader.\n"
+        "3. Use the glossary below strictly: whenever a term appears in the text, replace it with its English equivalent.\n"
+        "4. Preserve all numbers, dates, and the logical sequence of events.\n"
+        "5. Do NOT output any Chinese text in the final answer.\n"
+        "6. Do NOT add commentary or explanations—just produce the English translation.\n"
+        "7. If something cannot be translated directly, provide the closest natural English phrasing.\n"
         + glossary_section
     )
 
 GRAMMARLY_PROMPT = """
 You are a grammar and spelling corrector.
-Your goal is to correct the provided English text without changing its meaning.
-
-Rules:
-1. Fix only grammar, punctuation, and spelling mistakes.
-2. Preserve the original meaning and tone exactly.
-3. Do not add, remove, or rephrase ideas.
-4. Do not introduce examples, commentary, or outside information.
-5. Keep sentence structure and style natural, minimal edits only.
-6. Return only the corrected text — no extra output, explanations, or notes.
+Correct grammar, punctuation, and spelling without changing meaning.
+Keep sentence structure and style natural; minimal edits only.
+Return only the corrected text.
 """
 
 
 # -------------------------
-# Helper functions
+# Glossary Helpers
 # -------------------------
-
 def glossary_to_prompt(glossary: dict) -> str:
     if not glossary:
         return ""
-    items = "\n".join(f"{src} → {tgt}" for src, tgt in glossary.items())
-    return f"Glossary (strictly apply these mappings):\n{items}\n\n"
+    return "\n".join(f"{src} → {tgt}" for src, tgt in glossary.items())
+
 
 def get_relevant_glossary(text: str, glossary_list: list) -> dict:
     relevant = {}
     for term in glossary_list:
-        src = term["chinese"]
-        tgt = term["english"]
+        src, tgt = term["chinese"], term["english"]
         if len(src) > 1 and src in text:
             relevant[src] = tgt
     return relevant
 
+
 async def fetch_glossary_from_db(request: Request) -> list:
     conn = request.app.state.db
-    rows = query_glossary(conn=conn, dbDump = True)  
-    print(f"Retrieved {len(rows)} items ...")
-    #print(rows)
+    rows = query_glossary(conn=conn, dbDump=True)
     return [{"chinese": r["chinese"], "english": r["english"]} for r in rows]
 
 
-def generateOllamaPrompt(system_prompt: str, model: str, user_prompt: str):
+# -------------------------
+# Ollama Helper
+# -------------------------
+def generate_ollama_prompt(system_prompt: str, model: str, user_prompt: str):
     try:
         response = ollama.chat(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            options={
-                "temperature": 0.0
-            }
+            options={"temperature": 0.0},
         )
-        return response.get("message", {}).get("content", "[Error: Empty response from model]")
+        return response.get("message", {}).get("content", "[Error: Empty response]")
     except Exception as e:
         return f"[Error from model: {e}]"
-    
 
 
-@chat_router.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("chat.html", {"request": request})
+# -------------------------
+# Routes
+# -------------------------
 
-@chat_router.post("/translate")
-async def translate(request: Request):
+@chat_router.post("/translate/start")
+async def start_translation(request: Request):
     data = await request.json()
     user_message = data.get("message")
 
     glossary_list = await fetch_glossary_from_db(request)
-    #print(glossary_list) - confirmed glossary gets populated
     glossary_dict = get_relevant_glossary(user_message, glossary_list)
-    glossary_prompt = glossary_to_prompt(glossary_dict)
+
+    if not glossary_dict:
+        return JSONResponse({"stage": "complete", "reply": "No glossary match found."})
+
+    return JSONResponse({
+        "stage": "confirm_glossary",
+        "glossary_options": glossary_dict
+    })
 
 
-    system_prompt = build_translate_prompt(glossary_prompt)
-    print(system_prompt)
-    resp = generateOllamaPrompt(system_prompt,"deepseek-v2:16b", user_message)
-    return JSONResponse({"reply": resp, "glossary_prompt": glossary_prompt})
-
-@chat_router.post("/grammarly")
-async def grammarly(request: Request):
+@chat_router.post("/translate/confirm")
+async def confirm_translation(request: Request):
     data = await request.json()
     user_message = data.get("message")
-    #currently testing which model to use
-    models = ["deepseek-v2:16b","qwen2.5:7b","mistral:7b","llama3:8b"]
-    resp = generateOllamaPrompt(GRAMMARLY_PROMPT,models[1], user_message)
-    return JSONResponse({"reply": resp})
+    confirmed_glossary = data.get("confirmed_glossary", {})
 
+    glossary_prompt = glossary_to_prompt(confirmed_glossary)
+    system_prompt = build_translate_prompt(glossary_prompt)
+
+    resp = generate_ollama_prompt(system_prompt, "deepseek-v2:16b", user_message)
+    
+    return JSONResponse({
+        "stage": "complete",
+        "reply": resp,
+        "glossary_prompt": glossary_prompt
+    })
+
+
+@chat_router.post("/translate/polish")
+async def polish_translation(request: Request):
+    data = await request.json()
+    user_message = data.get("message", "").strip()
+    model = "qwen2.5:7b"
+
+    # Run the grammar model
+    corrected = generate_ollama_prompt(GRAMMARLY_PROMPT, model, user_message).strip()
+
+    # Normalize whitespace for comparison
+    def normalize(s: str) -> str:
+        return " ".join(s.split())
+
+    if normalize(corrected) == normalize(user_message):
+        reply = "No change necessary."
+    else:
+        reply = corrected
+
+    return JSONResponse({"reply": reply})
