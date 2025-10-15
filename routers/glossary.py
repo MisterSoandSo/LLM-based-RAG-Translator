@@ -15,64 +15,76 @@ glossary_router = APIRouter(
 # Helper functions
 # -------------------------
 
-def query_glossary(conn, q: str = None, page: int = 1, limit: int = 20,dbDump = False):
+def query_glossary(conn, q: str = None, page: int = 1, limit: int = 20, dbDump=False,
+                   sort_by: str = "alpha", sort_dir: str = "asc"):
     """
-        Shared helper for querying glossary entries.
-        If dbDump=True, returns all rows (no pagination or counts).
-        Otherwise returns (rows, total_rows, total_pages).
-        """
+    Query glossary with optional search, pagination, and sorting.
+    sort_by: 'alpha' (default), 'length', or 'updated'
+    sort_dir: 'asc' or 'desc'
+    Shared helper for querying glossary entries.
+    If dbDump=True, returns all rows (no pagination or counts).
+    Otherwise returns (rows, total_rows, total_pages).
+    """
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
+
     if dbDump:
-        cur.execute(
-            """
-            SELECT *
-            FROM glossary
-            """)
-        rows = cur.fetchall()
-        return rows
-    
+        cur.execute("SELECT * FROM glossary")
+        return cur.fetchall()
+
     # --- Validate pagination ---
     page = max(page, 1)
     limit = min(max(limit, 1), 100)
     offset = (page - 1) * limit
 
-    # --- Fetch rows ---
+    # --- Sorting logic ---
+    sort_by = sort_by.lower()
+    sort_dir = "DESC" if sort_dir.lower() == "desc" else "ASC"
+
+    if sort_by == "length":
+        # Sort by the shorter of chinese or english length (or both)
+        order_clause = f"ORDER BY LENGTH(chinese) {sort_dir}, LENGTH(english) {sort_dir}"
+    elif sort_by == "updated":
+        order_clause = f"ORDER BY updated_at {sort_dir}"
+    else:
+        order_clause = f"ORDER BY chinese {sort_dir}"
+
+    # --- Query rows ---
     if q:
         cur.execute(
-            """
-            SELECT id, chinese, english
+            f"""
+            SELECT id, chinese, english, updated_at
             FROM glossary
             WHERE chinese LIKE ? OR english LIKE ?
-            ORDER BY chinese ASC
+            {order_clause}
             LIMIT ? OFFSET ?
             """,
             (f"%{q}%", f"%{q}%", limit, offset)
         )
     else:
         cur.execute(
-            """
-            SELECT id, chinese, english
+            f"""
+            SELECT id, chinese, english, updated_at
             FROM glossary
-            ORDER BY chinese ASC
+            {order_clause}
             LIMIT ? OFFSET ?
             """,
             (limit, offset)
         )
+
     rows = cur.fetchall()
 
     # --- Count total rows for pagination ---
     if q:
-        cur.execute(
-            "SELECT COUNT(*) FROM glossary WHERE chinese LIKE ? OR english LIKE ?",
-            (f"%{q}%", f"%{q}%")
-        )
+        cur.execute("SELECT COUNT(*) FROM glossary WHERE chinese LIKE ? OR english LIKE ?", (f"%{q}%", f"%{q}%"))
     else:
         cur.execute("SELECT COUNT(*) FROM glossary")
+
     total_rows = cur.fetchone()[0]
     total_pages = (total_rows + limit - 1) // limit
 
     return rows, total_rows, total_pages
+
 
 templates = Jinja2Templates(directory="templates")
 
@@ -91,11 +103,13 @@ async def get_glossary(
     request: Request,
     q: str = None,
     page: int = 1,
-    limit: int = 20
+    limit: int = 20,
+    sort_by: str = "alpha",
+    sort_dir: str = "asc"
 ):
     try:
         conn = request.app.state.db
-        rows, total_rows, total_pages = query_glossary(conn, q, page, limit)
+        rows, total_rows, total_pages = query_glossary(conn, q, page, limit, sort_by=sort_by, sort_dir=sort_dir)
 
         has_next = page < total_pages
         has_prev = page > 1
@@ -112,12 +126,16 @@ async def get_glossary(
                 "total_pages": total_pages,
                 "has_next": has_next,
                 "has_prev": has_prev,
+                "sort_by": sort_by,
+                "sort_dir": sort_dir,
             }
         )
+
 
     except Exception:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @glossary_router.post("/")
 async def add_term(

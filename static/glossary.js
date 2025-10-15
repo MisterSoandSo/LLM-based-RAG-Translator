@@ -85,3 +85,30 @@ document.querySelectorAll("#glossaryTable .deleteBtn").forEach(btn => {
             .catch(err => alert(err));
     });
 });
+
+// --- Sorting controls ---
+document.querySelectorAll("#glossaryTable thead th[data-sort]").forEach(th => {
+  th.style.cursor = "pointer";
+  th.addEventListener("click", () => {
+    const sortBy = th.dataset.sort;
+    const url = new URL(window.location.href);
+    const currentSortBy = url.searchParams.get("sort_by") || "alpha";
+    const currentSortDir = url.searchParams.get("sort_dir") || "asc";
+
+    // If user clicks the same column again, toggle direction
+    let newSortDir = "asc";
+    if (sortBy === currentSortBy && currentSortDir === "asc") {
+      newSortDir = "desc";
+    }
+
+    // Preserve current search & pagination params
+    const q = url.searchParams.get("q") || "";
+    const page = url.searchParams.get("page") || 1;
+    const limit = url.searchParams.get("limit") || 20;
+
+    // Build new query string
+    const newUrl = `/glossary/?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}&sort_by=${sortBy}&sort_dir=${newSortDir}`;
+    window.location.href = newUrl;
+  });
+});
+

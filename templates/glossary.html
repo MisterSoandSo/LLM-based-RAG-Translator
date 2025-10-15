@@ -11,6 +11,8 @@
     <div style="display: flex; align-items: center; gap: 1em; margin-bottom: 1em;">
         <!-- Search form -->
         <form method="get" action="/glossary/" style="display: flex; gap: 0.5em; flex-grow: 1;">
+            <input type="hidden" name="sort_by" value="{{ sort_by }}">
+            <input type="hidden" name="sort_dir" value="{{ sort_dir }}">
             <input type="text" name="q" placeholder="Search..." value="{{ q }}" style="flex-grow: 1;">
             <button type="submit">Search</button>
         </form>
@@ -34,13 +36,24 @@
     <h2>Glossary</h2>
     <table id="glossaryTable">
         <thead>
-            <tr>
-                <th>Chinese</th>
-                <th>English</th>
-                <th>Notes</th>
-                <th>Actions</th>
-            </tr>
+        <tr>
+            <th data-sort="alpha">
+            Chinese
+            {% if sort_by == 'alpha' %}
+                {{ '↑' if sort_dir == 'asc' else '↓' }}
+            {% endif %}
+            </th>
+            <th data-sort="length">
+            English (by length)
+            {% if sort_by == 'length' %}
+                {{ '↑' if sort_dir == 'asc' else '↓' }}
+            {% endif %}
+            </th>
+            <th>Notes</th>
+            <th>Actions</th>
+        </tr>
         </thead>
+
         <tbody>
             {% for row in rows %}
             <tr data-id="{{ row['id'] }}" 
@@ -62,13 +75,20 @@
     <!-- Pagination -->
     <div class="pagination" style="margin-top: 1em;">
         {% if page > 1 %}
-            <a class="button" href="/glossary/?q={{ q }}&page={{ page - 1 }}">Back</a>
+            <a class="button"
+            href="/glossary/?q={{ q }}&page={{ page - 1 }}&limit={{ limit }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}">
+            Back
+            </a>
         {% endif %}
         {% if page < total_pages %}
-            <a class="button" href="/glossary/?q={{ q }}&page={{ page + 1 }}">Next</a>
+            <a class="button"
+            href="/glossary/?q={{ q }}&page={{ page + 1 }}&limit={{ limit }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}">
+            Next
+            </a>
         {% endif %}
         <span>Page {{ page }} of {{ total_pages }}</span>
     </div>
+
 </body>
 <script src="/static/glossary.js"></script>
 </html>

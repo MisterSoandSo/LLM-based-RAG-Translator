@@ -225,3 +225,11 @@ div.pagination a button.pagination-btn:hover {
     max-height: 400px;
     overflow-y: auto;
 }
+
+#glossaryTable th[data-sort] {
+  cursor: pointer;
+  user-select: none;
+}
+#glossaryTable th[data-sort]:hover {
+  background-color: #f0f0f0;
+}
