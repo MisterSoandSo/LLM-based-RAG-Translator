@@ -1,3 +1,4 @@
+// project.js
 document.addEventListener("DOMContentLoaded", () => {
   const chatBox = document.getElementById("chatBox");
   const userInput = document.getElementById("userInput");
@@ -8,13 +9,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------------
   const popupMenu = document.createElement("div");
   popupMenu.id = "popupMenu";
-  popupMenu.style.position = "absolute";
-  popupMenu.style.display = "none";
-  popupMenu.style.zIndex = 9999;
-  popupMenu.style.background = "#fff";
-  popupMenu.style.border = "1px solid #ccc";
-  popupMenu.style.borderRadius = "4px";
-  popupMenu.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
+  Object.assign(popupMenu.style, {
+    position: "absolute",
+    display: "none",
+    zIndex: 9999,
+    background: "#fff",
+    border: "1px solid #ccc",
+    borderRadius: "4px",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+    padding: "6px"
+  });
   document.body.appendChild(popupMenu);
 
   const glossaryBtn = document.createElement("button");
@@ -60,10 +64,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------------
   function parseGlossaryPrompt(glossaryText) {
     const dict = {};
-    const lines = glossaryText.split("\n");
+    if (!glossaryText) return dict;
+    const lines = glossaryText.split("\n").map(s => s.trim()).filter(Boolean);
     for (const line of lines) {
-      const match = line.match(/^(.+?)\s*→\s*(.+)$/);
-      if (match) dict[match[1].trim()] = match[2].trim();
+      // supports "term → definition" or "term: definition"
+      const matchArrow = line.match(/^(.+?)\s*→\s*(.+)$/);
+      const matchColon = line.match(/^(.+?)\s*:\s*(.+)$/);
+      if (matchArrow) dict[matchArrow[1].trim()] = matchArrow[2].trim();
+      else if (matchColon) dict[matchColon[1].trim()] = matchColon[2].trim();
     }
     return dict;
   }
@@ -73,46 +81,68 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function highlightGlossaryTerms(text, glossaryDict) {
-    let result = text;
-    for (const [src, tgt] of Object.entries(glossaryDict)) {
-      const regex = new RegExp(`(${escapeRegex(src)}|${escapeRegex(tgt)})`, "g");
-      result = result.replace(regex, `<span class="highlight-term">$1</span>`);
-    }
-    return result;
+    if (!glossaryDict || Object.keys(glossaryDict).length === 0) return text;
+    // Sort keys by length desc to avoid partial matches shadowing longer ones
+    const terms = Object.keys(glossaryDict).sort((a, b) => b.length - a.length);
+    if (terms.length === 0) return text;
+    const pattern = terms.map(t => escapeRegex(t)).join("|");
+    const regex = new RegExp(`(${pattern}|${terms.map(t => escapeRegex(glossaryDict[t])).join("|")})`, "g");
+    return text.replace(regex, '<span class="highlight-term">$1</span>');
   }
 
   // -------------------------
   // Message helpers
   // -------------------------
-  function addMessage(text, type = "assistant") {
+  // type: "assistant" | "assistant-card" | "user" | "system"
+  function addMessage(text, type = "assistant", glossary = {}) {
     const msgDiv = document.createElement("div");
     msgDiv.className = `message ${type}`;
 
-    if (type === "assistant" && (text.startsWith("GLOSSARY") || text.startsWith("DEBUG PROMPT"))) {
+    if (type === "assistant-card") {
+      // render as a subtle info card (icon + content)
+      msgDiv.innerHTML = `
+        <div class="assist-card" style="display:flex;align-items:center;gap:10px;
+              padding:10px;border-radius:8px;background:#f8f9fb;border:1px solid #e1e6ef;">
+          <div class="assist-card-icon" style="flex:0 0 36px; height:36px; width:36px; border-radius:6px;
+               display:flex;align-items:center;justify-content:center;background:#e6eefc;color:#1b59c6;font-weight:700;">
+            i
+          </div>
+          <div class="assist-card-body" style="font-size:13px;line-height:1.3;">${text}</div>
+        </div>
+      `;
+    } else if (type === "assistant" && (typeof text === "string") && (text.startsWith("GLOSSARY") || text.startsWith("DEBUG PROMPT"))) {
+      // show raw preformatted for debug/glossary prompts
       msgDiv.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word; margin:0;">${text}</pre>`;
     } else if (type === "assistant") {
-      msgDiv.innerHTML = highlightGlossaryTerms(text, currentGlossary);
-    } else {
+      // highlight glossary on plain assistant messages using provided glossary
+      msgDiv.innerHTML = highlightGlossaryTerms(text, glossary);
+    } else if (type === "user") {
       msgDiv.textContent = text;
+    } else {
+      // system or other raw HTML (if we want to allow HTML)
+      msgDiv.innerHTML = text;
     }
 
     chatBox.appendChild(msgDiv);
     chatBox.scrollTop = chatBox.scrollHeight;
+    return msgDiv;
   }
 
   // -------------------------
   // Chat logic
   // -------------------------
   let chatStage = "start";
-  let pendingGlossary = {};
+  let pendingGlossary = {};           // what user confirmed to send to server
   let lastUserMessage = "";
-  let currentGlossary = {};
+  let lastSystemGlossary = {};        // original glossary suggested by system (for comparison)
 
   async function sendMessage() {
     const message = userInput.value.trim();
     if (!message && chatStage === "start") return;
-    if (chatStage === "start") lastUserMessage = message;
-    if (chatStage === "start") addMessage(message, "user");
+    if (chatStage === "start") {
+      lastUserMessage = message;
+      addMessage(message, "user");
+    }
 
     const endpoint = chatStage === "start"
       ? "/chat/translate/start"
@@ -131,15 +161,34 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await response.json();
 
       if (data.stage === "confirm_glossary") {
-        displayGlossaryConfirmation(data.glossary_options);
+        // system provided glossary options to review/confirm
+        const options = data.glossary_options || {};
+        lastSystemGlossary = options;
+        displayGlossaryConfirmation(options);
         chatStage = "confirm";
       } else if (data.stage === "complete") {
+        // TEMPORARY glossary only for this reply
+        let tempGlossary = {};
         if (data.glossary_prompt) {
-          currentGlossary = parseGlossaryPrompt(data.glossary_prompt);
+          tempGlossary = parseGlossaryPrompt(data.glossary_prompt);
+          // keep the raw prompt visible for debugging or user reference
           addMessage("GLOSSARY\n" + data.glossary_prompt, "assistant");
         }
-        if (data.reply) addMessage(data.reply, "assistant");
+
+        if (data.reply) {
+          // show assistant reply highlighted only with tempGlossary
+          addMessage(data.reply, "assistant", tempGlossary);
+        }
+
+        // clear pending glossary and stage for next round
+        pendingGlossary = {};
+        lastSystemGlossary = {};
         chatStage = "start";
+        // optionally clear the input
+        if (chatStage === "start") userInput.value = "";
+      } else {
+        // fallback: if server returns other shape, just print it
+        if (data.reply) addMessage(data.reply, "assistant");
       }
     } catch (err) {
       console.error(err);
@@ -150,52 +199,156 @@ document.addEventListener("DOMContentLoaded", () => {
   window.sendMessage = sendMessage;
 
   // -------------------------
-  // Glossary confirmation
+  // Glossary confirmation (editable + removable + detect changes)
   // -------------------------
   function displayGlossaryConfirmation(glossaryOptions) {
     const container = document.createElement("div");
     container.className = "glossary-confirmation";
+    Object.assign(container.style, { margin: "8px 0" });
 
     const title = document.createElement("h4");
-    title.textContent = "Please confirm glossary definitions:";
+    title.textContent = "Please confirm, edit, or remove glossary definitions:";
+    title.style.margin = "0 0 8px 0";
     container.appendChild(title);
 
-    for (const [term, definition] of Object.entries(glossaryOptions)) {
+    // store original system suggestions for comparison
+    const original = Object.assign({}, glossaryOptions);
+    lastSystemGlossary = original;
+
+    // reset pendingGlossary
+    pendingGlossary = {};
+
+    // Each row: term label, editable input (or textarea), remove checkbox
+    for (const [term, definition] of Object.entries(original)) {
       const block = document.createElement("div");
       block.className = "glossary-choice-block";
-
-      const label = document.createElement("div");
-      label.innerHTML = `<b>${term}</b>`;
-      block.appendChild(label);
-
-      const select = document.createElement("select");
-      const opt = document.createElement("option");
-      opt.value = definition;
-      opt.textContent = definition;
-      select.appendChild(opt);
-      select.addEventListener("change", () => {
-        pendingGlossary[term] = select.value;
+      Object.assign(block.style, {
+        marginBottom: "8px",
+        padding: "8px 10px",
+        border: "1px solid #e0e6ef",
+        borderRadius: "6px",
+        background: "#fbfdff",
+        display: "flex",
+        gap: "8px",
+        alignItems: "center"
       });
+
+      const termLabel = document.createElement("div");
+      termLabel.innerHTML = `<b>${escapeHtml(term)}</b>`;
+      termLabel.style.minWidth = "120px";
+      block.appendChild(termLabel);
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = definition;
+      input.style.flex = "1";
+      input.style.padding = "6px";
+      input.style.border = "1px solid #cfd8e6";
+      input.style.borderRadius = "4px";
+      block.appendChild(input);
+
+      // Remove checkbox
+      const removeLabel = document.createElement("label");
+      removeLabel.style.display = "flex";
+      removeLabel.style.alignItems = "center";
+      removeLabel.style.gap = "6px";
+      const removeCheckbox = document.createElement("input");
+      removeCheckbox.type = "checkbox";
+      removeCheckbox.title = "Remove this term from the glossary to be sent";
+      removeLabel.appendChild(removeCheckbox);
+      removeLabel.appendChild(document.createTextNode("Remove"));
+      block.appendChild(removeLabel);
+
+      // Initialize pendingGlossary with default
       pendingGlossary[term] = definition;
-      block.appendChild(select);
+
+      // handlers
+      input.addEventListener("input", () => {
+        if (!removeCheckbox.checked) {
+          pendingGlossary[term] = input.value.trim();
+        }
+      });
+
+      removeCheckbox.addEventListener("change", () => {
+        if (removeCheckbox.checked) {
+          delete pendingGlossary[term];
+          input.disabled = true;
+          block.style.opacity = "0.55";
+        } else {
+          pendingGlossary[term] = input.value.trim();
+          input.disabled = false;
+          block.style.opacity = "1";
+        }
+      });
+
       container.appendChild(block);
     }
 
+    const actions = document.createElement("div");
+    actions.style.marginTop = "10px";
+    actions.style.display = "flex";
+    actions.style.gap = "8px";
+
     const confirmBtn = document.createElement("button");
     confirmBtn.textContent = "Confirm and Translate";
+    confirmBtn.style.padding = "8px 12px";
     confirmBtn.onclick = () => {
-      addMessage("Confirmed glossary terms. Translating...", "assistant");
-      chatBox.removeChild(container);
+      // Validate: no empty definitions
+      for (const [term, def] of Object.entries(pendingGlossary)) {
+        if (!def || !def.trim()) {
+          alert(`Definition for "${term}" cannot be empty.`);
+          return;
+        }
+      }
+
+      // detect changed terms (definition changed vs original)
+      const changedTerms = [];
+      for (const term of Object.keys(original)) {
+        // if user removed it, it's not "changed" for the purpose of generating manage links
+        if (!(term in pendingGlossary)) continue;
+        if (original[term] !== pendingGlossary[term]) changedTerms.push(term);
+      }
+
+      // Post messages for changed terms (assistant-card)
+      for (const term of changedTerms) {
+        const encoded = encodeURIComponent(term);
+        const linkHref = `/glossary/?sort_by=alpha&sort_dir=asc&q=${encoded}`;
+        const cardHtml = `
+          You updated: <b>${escapeHtml(term)}</b><br/>
+          <a href="${linkHref}" target="_blank" rel="noopener noreferrer">Manage this term</a>
+        `;
+        addMessage(cardHtml, "assistant-card");
+      }
+
+      addMessage("Confirmed and edited glossary terms. Translating...", "assistant");
+      // remove UI
+      if (container.parentElement === chatBox) chatBox.removeChild(container);
+      // set stage and call sendMessage (this will use pendingGlossary)
+      chatStage = "confirm";
+      // proceed to send confirm call
       sendMessage();
     };
-    container.appendChild(confirmBtn);
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.style.padding = "8px 12px";
+    cancelBtn.onclick = () => {
+      if (container.parentElement === chatBox) chatBox.removeChild(container);
+      pendingGlossary = {};
+      chatStage = "start";
+      addMessage("Cancelled glossary confirmation.", "assistant");
+    };
+
+    actions.appendChild(confirmBtn);
+    actions.appendChild(cancelBtn);
+    container.appendChild(actions);
 
     chatBox.appendChild(container);
     chatBox.scrollTop = chatBox.scrollHeight;
   }
 
   // -------------------------
-  // Grammar check button (fixed)
+  // Grammar check button
   // -------------------------
   grammarBtn.addEventListener("click", async () => {
     const selection = window.getSelection().toString().trim();
@@ -210,7 +363,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const data = await response.json();
       addMessage("Original: " + selection, "user");
-      addMessage("Corrected: " + data.reply, "assistant");
+      addMessage("Corrected: " + (data.reply || "—"), "assistant");
     } catch (err) {
       console.error(err);
       addMessage("❌ Error checking grammar", "assistant");
@@ -228,4 +381,24 @@ document.addEventListener("DOMContentLoaded", () => {
     popupMenu.style.display = "none";
     window.getSelection().removeAllRanges();
   });
+
+  // -------------------------
+  // Utility: safe escape html for display in innerHTML
+  // -------------------------
+  function escapeHtml(unsafe) {
+    return String(unsafe)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // expose small helpers for debugging
+  window._project = {
+    sendMessage,
+    addMessage,
+    parseGlossaryPrompt
+  };
 });
+
